@@ -2,7 +2,7 @@
 
 This project is a snapshot of some early work I did to integrate dioxus fullstack web app with the [axum-login crate](https://github.com/maxcountryman/axum-login).
 axum-login is a authentication library for axum. It provides a way to handle user authentication and session management in a straightforward manner.
-It is only an in Memory version with default users:
+It is only an in memory version with default users:
 
 ---
     - username: user1
@@ -22,7 +22,7 @@ argon2 is used for hashing, and there is some example code for protecting routes
 
 - Plan to add sqlx / sqlite database, for user database and session management.
 
-Any suggestions will be welcomed.
+Productive feedback welcomed, as I haven't spent enough time reading into the dioxus apis as yet.
 
 To run:
 
