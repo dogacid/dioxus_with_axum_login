@@ -61,7 +61,27 @@ async fn launch_server() {
 
 #[component]
 fn App() -> Element {
+    use async_std::task::sleep;
+
     use_context_provider(|| Signal::new(Option::<AppUser>::None));
+
+    use_future(move || async move {
+        loop {
+            if let Ok(Some(user)) = current_user().await {
+                let user_in_context = use_user_context();
+                if let Some(ref app_user) = *user_in_context.read() {
+                    if app_user.username == user.username {
+                        continue;
+                    }
+                }
+                use_user_context().set(Some(AppUser { username: user.username }));
+            } else {
+                use_user_context().set(None);
+            }
+
+            sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
 
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
@@ -91,6 +111,10 @@ fn LoginPage() -> Element {
             br {}
             button { "Login" }
         }
+        Link {
+            to: Route::Home {},
+            "Back to Home"
+        }
     }
 }
 
@@ -107,6 +131,7 @@ fn Home() -> Element {
                 li { "user1 / 1234" }
                 li { "user2 / 5678" }
             }
+            UserStatus {}
             Link {
                 to: Route::MainPage {},
                 "Main Page"

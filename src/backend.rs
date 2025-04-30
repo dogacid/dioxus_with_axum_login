@@ -110,7 +110,7 @@ pub fn add_auth_layer() -> AuthManagerLayer<Backend, MemoryStore> {
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false)
-        .with_expiry(Expiry::OnInactivity(Duration::seconds(10)));
+        .with_expiry(Expiry::OnInactivity(Duration::minutes(10)));
 
     // Auth service.
     let backend = create_backend();

@@ -1,5 +1,5 @@
 [package]
-name = "dioxus_abc"
+name = "dioxus_with_axum_login"
 version = "0.1.0"
 authors = ["Marc Galbraith <marc.galbraith@icloud.com>"]
 edition = "2021"
@@ -16,13 +16,14 @@ axum = { version="0.7",  optional = true, features = ["tokio"] }
 axum-login = { version = "0.17", optional = true }
 tokio = { version="1.44.2",  features = ["full"], optional = true }
 server_fn = "0"
+async-std = { version = "1.13.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0", features = ["js"] }
 
 [features]
 default = ["web"]
-web = ["dioxus/web"]
+web = ["dioxus/web", "dep:async-std"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
 server = ["dioxus/server", "dep:tokio", "dep:axum", "dep:axum-login"]

@@ -38,7 +38,9 @@ argon2 is used for hashing, and there is some example code for protecting routes
 ### Todos
 
 - Will need to add a background auth checker for the front-end
-- Fix Bug: When refresh page lose the logged in user in the front-end, when back-end still has session, the background checker might fix that.
+  - This is has been added, need further testing.
+  - Ensure Front-End in sync with Back-end, maybe look into axum websocket integration.
+
 - Plan to add sqlx / sqlite database, for user database and session management.
 
 Any suggestions will be welcomed, as I ev.
