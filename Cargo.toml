@@ -1,0 +1,40 @@
+[package]
+name = "dioxus_abc"
+version = "0.1.0"
+authors = ["Marc Galbraith <marc.galbraith@icloud.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.6", features = ["router", "fullstack"] }
+serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+rand_core = { version = "0"}
+argon2 = "0.5.3"
+axum = { version="0.7",  optional = true, features = ["tokio"] }
+axum-login = { version = "0.17", optional = true }
+tokio = { version="1.44.2",  features = ["full"], optional = true }
+server_fn = "0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0", features = ["js"] }
+
+[features]
+default = ["web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+server = ["dioxus/server", "dep:tokio", "dep:axum", "dep:axum-login"]
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
