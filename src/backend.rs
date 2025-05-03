@@ -1,12 +1,13 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use argon2::{Argon2, PasswordHash, PasswordHasher};
-use axum_login::{AuthManagerLayer, AuthManagerLayerBuilder, AuthSession, AuthUser, AuthnBackend, UserId};
-use async_trait::async_trait;
+use axum_login::{AuthManagerLayer, AuthManagerLayerBuilder, AuthSession, AuthUser, AuthnBackend, UserId, AuthzBackend};
 use argon2::password_hash::{PasswordVerifier, SaltString};
 use argon2::password_hash::rand_core::OsRng;
 use axum_login::tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 use axum_login::tower_sessions::cookie::time::Duration;
 use serde::{Serialize, Deserialize};
+use sqlx::{Error, FromRow, SqlitePool};
+use async_trait::async_trait;
 
 fn hash_password(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
@@ -16,83 +17,110 @@ fn hash_password(password: &str) -> String {
         .to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
+    pub id: i64,
     pub username: String,
-    pub password_hash: String,
+    password: String,
 }
 
 impl AuthUser for User {
-    type Id = String;
+    type Id = i64;
 
     fn id(&self) -> Self::Id {
-        self.username.clone()
+        self.id
     }
 
     fn session_auth_hash(&self) -> &[u8] {
-        &self.password_hash.as_bytes()
+        &self.password.as_bytes()
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct Credentials {
+    pub username: String,
+    pub password: String,
+    pub next: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct Backend {
-    pub users: HashMap<String, User>,
+    db: SqlitePool,
 }
 
 impl Backend {
-    pub fn new(users: HashMap<String, User>) -> Self {
-        Backend { users }
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
     }
 }
 
-fn create_backend() -> Backend {
-    let mut users = HashMap::new();
-
-    users.insert(
-        "user1".to_string(),
-        User {
-            username: "user1".to_string(),
-            password_hash: hash_password("1234"), // Replace with actual password hash
-        },
-    );
-
-    users.insert(
-        "user2".to_string(),
-        User {
-            username: "user2".to_string(),
-            password_hash: hash_password("5678"), // Replace with actual password hash
-        },
-    );
-
-    Backend::new(users)
-
-}
-
-pub type Credentials = (String, String);
-
-#[async_trait]
+#[async_trait::async_trait]
 impl AuthnBackend for Backend {
     type User = User;
     type Credentials = Credentials;
-    type Error = std::convert::Infallible;
+    type Error = sqlx::Error;
 
     async fn authenticate(
         &self,
-        ( username, password ): Self::Credentials,
+        creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        if let Some(user) = self.users.get(&username) {
-            if verify_password(&password, &user.password_hash) {
-                return Ok(Some(user.clone()));
-            }
-        }
-        Ok(None)
+        let user: Option<Self::User> = sqlx::query_as("select * from users where username = ? ")
+            .bind(creds.username)
+            .fetch_optional(&self.db)
+            .await?;
+
+        Ok(user.filter(|user| verify_password(&creds.password, &user.password)))
     }
 
     async fn get_user(
         &self,
         user_id: &UserId<Self>,
     ) -> Result<Option<Self::User>, Self::Error> {
-        Ok(self.users.get(user_id).cloned())
+        let user = sqlx::query_as("select * from users where id = ?")
+            .bind(user_id)
+            .fetch_optional(&self.db)
+            .await?;
+
+        Ok(user)
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, FromRow)]
+pub struct Permission {
+    pub name: String,
+}
+
+impl From<&str> for Permission {
+    fn from(name: &str) -> Self {
+        Permission {
+            name: name.to_string(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AuthzBackend for Backend {
+    type Permission = Permission;
+
+    async fn get_group_permissions(
+        &self,
+        user: &Self::User,
+    ) -> Result<HashSet<Self::Permission>, Self::Error> {
+        let permissions: Vec<Self::Permission> = sqlx::query_as(
+            r#"
+            select distinct permissions.name
+            from users
+            join users_groups on users.id = users_groups.user_id
+            join groups_permissions on users_groups.group_id = groups_permissions.group_id
+            join permissions on groups_permissions.permission_id = permissions.id
+            where users.id = ?
+            "#,
+        )
+            .bind(user.id)
+            .fetch_all(&self.db)
+            .await?;
+
+        Ok(permissions.into_iter().collect())
     }
 }
 
@@ -104,7 +132,7 @@ fn verify_password(password: &str, hash: &str) -> bool {
 pub type DioxusAuthSession = AuthSession<Backend>;
 
 
-pub fn add_auth_layer() -> AuthManagerLayer<Backend, MemoryStore> {
+pub async fn add_auth_layer(db: &SqlitePool) -> AuthManagerLayer<Backend, MemoryStore> {
 
     // Session layer.
     let session_store = MemoryStore::default();
@@ -113,7 +141,7 @@ pub fn add_auth_layer() -> AuthManagerLayer<Backend, MemoryStore> {
         .with_expiry(Expiry::OnInactivity(Duration::minutes(10)));
 
     // Auth service.
-    let backend = create_backend();
+    let backend = Backend::new(db.clone());
     AuthManagerLayerBuilder::new(backend, session_layer).build()
 
 }

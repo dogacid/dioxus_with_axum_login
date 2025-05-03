@@ -3,11 +3,15 @@ mod backend;
 
 #[cfg(feature = "server")]
 use dioxus::logger::tracing::log::{log, Level};
-
 #[cfg(feature = "server")]
 use crate::backend::DioxusAuthSession;
+#[cfg(feature = "server")]
+use tokio::sync::OnceCell;
+#[cfg(feature = "server")]
+use sqlx::SqlitePool;
 
 use dioxus::prelude::*;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Routable, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -40,8 +44,16 @@ fn main() {
 #[cfg(feature = "server")]
 async fn launch_server() {
     use crate::backend::add_auth_layer;
+    use sqlx::SqlitePool;
+
     // Connect to dioxus' logging infrastructure
     dioxus::logger::initialize_default();
+
+    // Initialize the database
+    initialize_db().await;
+
+    // Retrieve the database pool from the OnceCell
+    let db = get_db();
 
     // Connect to the IP and PORT env vars passed by the Dioxus CLI (or your dockerfile)
     let socket_addr = dioxus::cli_config::fullstack_address_or_localhost();
@@ -50,7 +62,7 @@ async fn launch_server() {
     // Build a custom axum router
     let router = Router::new()
         .serve_dioxus_application(ServeConfigBuilder::new(), App)
-        .layer(add_auth_layer())
+        .layer(add_auth_layer(db).await)
         .into_make_service();
 
     // And launch it!
@@ -61,27 +73,12 @@ async fn launch_server() {
 
 #[component]
 fn App() -> Element {
+    use dioxus::logger::tracing::{Level, info};
     use async_std::task::sleep;
 
+    info!("App starting");
+
     use_context_provider(|| Signal::new(Option::<AppUser>::None));
-
-    use_future(move || async move {
-        loop {
-            if let Ok(Some(user)) = current_user().await {
-                let user_in_context = use_user_context();
-                if let Some(ref app_user) = *user_in_context.read() {
-                    if app_user.username == user.username {
-                        continue;
-                    }
-                }
-                use_user_context().set(Some(AppUser { username: user.username }));
-            } else {
-                use_user_context().set(None);
-            }
-
-            sleep(std::time::Duration::from_millis(500)).await;
-        }
-    });
 
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
@@ -128,8 +125,9 @@ fn Home() -> Element {
             p { "This is a simple Dioxus webapp integrated with axum-login" }
             p { "There are two users preloaded in the backend:" }
             ul {
-                li { "user1 / 1234" }
-                li { "user2 / 5678" }
+                li { "user1 / user1234" }
+                li { "user2 / user2345" }
+                li { "admin / admin1234" }
             }
             UserStatus {}
             Link {
@@ -161,11 +159,29 @@ fn ProtectedRoute() -> Element {
 
 #[component]
 fn MainPage() -> Element {
+
+    let mut user_items = use_signal(|| Vec::<String>::new());
+
+    use_future(move || async move {
+        match items().await {
+            Ok(items) => user_items.set(items),
+            Err(_) => {
+                user_items.set(Vec::<String>::new())
+            }
+        }
+    });
+
     rsx! {
         div {
             id: "main-page",
             h1 { "Main Page" }
             p { "This is the main page, that is protected by authentication." }
+            div {
+                h2 { "Items" }
+                for item in user_items().iter() {
+                    div { "{item}" }
+                }
+            }
             Link {
                 to: Route::Home {},
                 "Back to Home"
@@ -176,6 +192,20 @@ fn MainPage() -> Element {
 
 #[component]
 fn UserStatus() -> Element {
+
+    // This code does a check with the server to see if the user is still logged in
+    // Maybe, this is not needed, or  we switch JWT.
+    use_future(move || async move {
+        if let Ok(Some(user)) = current_user().await {
+            if let Some(ref app_user) = *use_user_context().read() {
+                if app_user.username != user.username {
+                    use_user_context().set(None);
+                }
+            }
+        } else {
+            use_user_context().set(None);
+        }
+    });
 
     match *use_user_context().read() {
         Some(ref app_user) => rsx! {
@@ -212,6 +242,21 @@ pub async fn get_auth_session() -> Result<DioxusAuthSession, ServerFnError> {
     }
 }
 
+#[cfg(feature = "server")]
+pub static DB: OnceCell<SqlitePool> = OnceCell::const_new();
+
+#[cfg(feature = "server")]
+pub async fn initialize_db() {
+    let db = SqlitePool::connect(":memory:").await.unwrap();
+    sqlx::migrate!().run(&db).await.unwrap();
+    DB.set(db).expect("Failed to set the database pool");
+}
+
+#[cfg(feature = "server")]
+pub fn get_db() -> &'static SqlitePool {
+    DB.get().expect("Database pool not initialized")
+}
+
 #[server]
 pub async fn current_user() -> Result<Option<AppUser>, ServerFnError> {
    let auth = get_auth_session().await?;
@@ -224,9 +269,10 @@ pub async fn current_user() -> Result<Option<AppUser>, ServerFnError> {
 
 #[server]
 pub async fn login(username: String, password: String) -> Result<(), ServerFnError> {
+    use crate::backend::Credentials;
     let mut auth = get_auth_session().await?;
 
-    match auth.authenticate((username, password)).await {
+    match auth.authenticate(Credentials { username: username, password: password, next: None }).await {
         Ok(Some(user)) => {
             match &auth.login(&user).await {
                 Ok(_) => {
@@ -253,6 +299,68 @@ pub async fn logout() -> Result<(), ServerFnError> {
     let mut auth = get_auth_session().await?;
     auth.logout().await?;
     Ok(())
+}
+
+// #[server]
+// pub async fn items() -> Result<Vec<String>, ServerFnError> {
+//     use std::collections::HashMap;
+//     let auth = get_auth_session().await?;
+//
+//     println!("start");
+//
+//     let mut map: HashMap<String, Vec<String>> = HashMap::new();
+//
+//     // Add a key with a vector of strings
+//     map.insert(
+//         "user1".to_string(),
+//         vec!["item1".to_string(), "item2".to_string()],
+//     );
+//
+//     // Add another key
+//     map.insert(
+//         "user2".to_string(),
+//         vec!["item3".to_string(), "item4".to_string()],
+//     );
+//
+//     match &auth.user {
+//         Some(user) => {
+//             if let Some(values) = map.get(&user.username) {
+//                 Ok(values.to_vec())
+//             } else {
+//                 Err(ServerFnError::ServerError("No user".to_string()))
+//             }
+//         },
+//         None => Err(ServerFnError::ServerError("No user".to_string())),
+//     }
+//
+//
+// }
+
+#[server]
+pub async fn items() -> Result<Vec<String>, ServerFnError> {
+    use sqlx::SqlitePool;
+    use std::convert::Infallible;
+
+    println!("start");
+
+    let auth = get_auth_session().await?;
+    println!("have auth");
+
+    let db = get_db();  
+
+    println!("have db");
+
+    match &auth.user {
+        Some(user) => {
+            let items = sqlx::query_scalar("SELECT name FROM items WHERE originator = ?")
+                .bind(&user.id)
+                .fetch_all(db)
+                .await?;
+            println!("Items in successfully");
+            Ok(items)
+        }
+        None => Err(ServerFnError::ServerError("No user in session".to_string())),
+    }
 }
 
 fn use_user_context() -> Signal<Option<AppUser>> {
