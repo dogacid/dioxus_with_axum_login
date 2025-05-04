@@ -6,10 +6,13 @@ It is only an in memory version with default users:
 
 ---
     - username: user1
-    - password: 1234
+    - password: user1234
 ---
     - username: user2
-    - password: 5678
+    - password: user1234
+---
+    - username: admin
+    - password: admin1234
 ---
 
 argon2 is used for hashing, and there is some example code for protecting routes. This is very early code, and part of my learning exercise.

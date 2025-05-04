@@ -126,7 +126,9 @@ impl AuthzBackend for Backend {
 
 fn verify_password(password: &str, hash: &str) -> bool {
     let parsed_hash = PasswordHash::new(hash).unwrap();
-    Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
+    let result = Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok();
+    println!("Verifying password against hash, returned: {}", result);
+    result
 }
 
 pub type DioxusAuthSession = AuthSession<Backend>;

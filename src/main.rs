@@ -24,6 +24,10 @@ pub enum Route {
     #[layout(ProtectedRoute)]
         #[route("/main")]
         MainPage {},
+    #[route("/:..route")]
+    PageNotFound {
+        route: Vec<String>,
+    },
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
@@ -88,17 +92,44 @@ fn App() -> Element {
 }
 
 #[component]
+fn PageNotFound(route: Vec<String>) -> Element {
+    rsx! {
+        h1 { "Page not found" }
+        p { "We are terribly sorry, but the page you requested doesn't exist." }
+        pre { color: "red", "log:\nattemped to navigate to: {route:?}" }
+    }
+}
+
+#[component]
 fn LoginPage() -> Element {
-    let onsubmit = move |evt: FormEvent| async move {
-        match login(evt.values()["username"].as_value(), evt.values()["password"].as_value()).await {
-            Ok(_) => use_user_context().set(Some(AppUser { username: evt.values()["username"].as_value() })),
-            Err(_) => use_user_context().set(None),
+    let mut messages = use_signal(|| Vec::<String>::new());
+
+    let onsubmit = move |evt: FormEvent| {
+        messages.write().clear();
+        async move {
+            match login(
+                evt.values()["username"].as_value(),
+                evt.values()["password"].as_value(),
+            )
+                .await
+            {
+                Ok(_) => use_user_context().set(Some(AppUser {
+                    username: evt.values()["username"].as_value(),
+                })),
+                Err(err) => {
+                    messages.write().push(format!("Login failed: {}", err.to_string()));
+                    use_user_context().set(None);
+                }
+            }
         }
     };
 
     use crate::dioxus_elements::textarea::autocomplete;
     rsx! {
         h1 { "Login" }
+        for message in messages().iter() {
+           p { style: "color: red;", "{message}" }
+        }
         form { onsubmit,
             input { r#type: "text", id: "username", name: "username", autocomplete: "username" }
             label { "Username" }

@@ -37,12 +37,12 @@ values (
    '$argon2id$v=19$m=65536,t=3,p=1$cUp2MklxZnIxQWRmYm4xb0RhcGNDZz09$0aa+Sr7oxk8YP8Teokn7D5OBpaoTW+0S/vMen0FFUS8'
 );
 
--- u: user2, p: user2345
+-- u: user2, p: user1234
 insert into users (username, password)
 values (
-           'user2',
-           '$argon2id$v=19$m=65536,t=3,p=1$cUp2MklxZnIxQWRmYm4xb0RhcGNDZz09$IjuNa9ayK8HEEEe+u8DOMyEHne60ZDBLalTTE2DtHFw'
-       );
+   'user2',
+   '$argon2id$v=19$m=65536,t=3,p=1$cUp2MklxZnIxQWRmYm4xb0RhcGNDZz09$0aa+Sr7oxk8YP8Teokn7D5OBpaoTW+0S/vMen0FFUS8'
+);
 
 -- Insert "admin" user.
 -- u: admin, p: admin1234
