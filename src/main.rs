@@ -9,9 +9,12 @@ use crate::backend::DioxusAuthSession;
 use tokio::sync::OnceCell;
 #[cfg(feature = "server")]
 use sqlx::SqlitePool;
+#[cfg(feature = "server")]
+use dotenv::dotenv;
+#[cfg(feature = "server")]
+use std::env;
 
 use dioxus::prelude::*;
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Routable, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -117,7 +120,10 @@ fn LoginPage() -> Element {
                     username: evt.values()["username"].as_value(),
                 })),
                 Err(err) => {
-                    messages.write().push(format!("Login failed: {}", err.to_string()));
+                    messages.write().push(match err {
+                        ServerFnError::ServerError(msg) => msg,
+                        _ => "An unknown error occurred".to_string(),
+                    });
                     use_user_context().set(None);
                 }
             }
@@ -278,7 +284,17 @@ pub static DB: OnceCell<SqlitePool> = OnceCell::const_new();
 
 #[cfg(feature = "server")]
 pub async fn initialize_db() {
-    let db = SqlitePool::connect(":memory:").await.unwrap();
+
+    let env_file = if cfg!(debug_assertions) {
+        ".env"
+    } else {
+        ".env.production"
+    };
+    dotenv::from_filename(env_file).ok();
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let db = SqlitePool::connect(&database_url).await.unwrap();
     sqlx::migrate!().run(&db).await.unwrap();
     DB.set(db).expect("Failed to set the database pool");
 }
@@ -317,10 +333,10 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
             }
         },
         Ok(None) => {
-            log!(Level::Info, "Login failed - None User match");
-            Err(ServerFnError::ServerError("No User".to_string()))
+            log!(Level::Info, "Login failed - No User match");
+            Err(ServerFnError::ServerError("Unauthorized: No User".to_string()))
         },
-        Err(_) => Err(ServerFnError::ServerError("Error occured".to_string())),
+        Err(_) => Err(ServerFnError::ServerError("Error occurred".to_string())),
     }
 
 }

@@ -21,6 +21,7 @@ futures = "0.3.31"
 sqlx = { version="0.8.5", features = ["sqlite", "time", "runtime-tokio"], optional = true }
 thiserror = "2"
 tracing = "0.1.41"
+dotenv = "0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0", features = ["js"] }
